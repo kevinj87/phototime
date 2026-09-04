@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phototime"
+version = "0.1.0"
+description = "Find the most trustworthy capture date for a photo"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [{name = "kevinj87"}]
+
+[project.scripts]
+phototime = "phototime.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["phototime*"]
