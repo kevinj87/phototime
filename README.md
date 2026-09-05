@@ -64,18 +64,27 @@ In order of trust:
 2. `EXIF DateTimeDigitized` - falls back to this if `DateTimeOriginal` is
    missing (common on scanned or re-processed images).
 3. `EXIF DateTime` - the IFD0 "file changed" tag, least specific of the three.
-4. A date pattern in the filename (`IMG_20230405_142212.jpg`,
+4. `png:CreationTime` - a PNG's `Creation Time` tEXt/zTXt chunk, when there's
+   no EXIF data to use instead (most PNGs are screenshots or re-encodes with
+   no camera EXIF at all).
+5. A date pattern in the filename (`IMG_20230405_142212.jpg`,
    `Screenshot_20230405-142212.png`, `IMG-20230405-WA0007.jpg`, and similar).
-5. The filesystem's mtime, as a last resort.
+6. The filesystem's mtime, as a last resort.
+
+PNGs are detected by file signature, not extension, and read the same
+DateTimeOriginal/DateTimeDigitized/DateTime tags as JPEGs when the file has
+an `eXIf` chunk (common for PNGs exported from RAW converters or phones
+that happen to save PNG).
 
 ## Current limitations
 
-- Only reads EXIF from JPEG files. PNG (tEXt/eXIf chunks) and HEIC are not
-  supported yet.
+- JPEG and PNG only. HEIC is not supported yet.
 - EXIF parsing covers the DateTime tags only - no GPS, no camera model, no
   orientation.
-- Assumes EXIF lives in the first 2MB of the file, which is true for every
-  camera and phone JPEG encoder, but not guaranteed by the JPEG spec.
+- Assumes EXIF lives in the first 2MB of a JPEG (4MB of a PNG), which is
+  true for every camera and phone encoder, but not guaranteed by the spec.
+- PNG `iTXt` chunks (the international-text variant) aren't read, only
+  `tEXt` and `zTXt`.
 
 ## License
 

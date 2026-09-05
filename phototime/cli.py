@@ -5,8 +5,9 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 
-from . import exif
+from . import exif, png
 
 _EXIF_DATETIME_RE = re.compile(r"^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$")
 
@@ -40,6 +41,32 @@ def _parse_exif_datetime(value):
         return datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
     except ValueError:
         return None
+
+
+def _parse_creation_time(value):
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed is None:
+        return None
+    # Sources elsewhere (mtime, filename) are naive local times, so drop any
+    # tzinfo to keep comparisons meaningful instead of raising on mixed types.
+    return parsed.replace(tzinfo=None)
+
+
+def _read_tags(path):
+    with open(path, "rb") as f:
+        header = f.read(8)
+    if header == png.SIGNATURE:
+        try:
+            return png.read_tags(path)
+        except png.PngError:
+            return {}
+    try:
+        return exif.read_tags(path)
+    except exif.ExifError:
+        return {}
 
 
 def _plausible(year, month, day, hour, minute, second):
@@ -76,15 +103,16 @@ def _from_filename(name):
 def gather_sources(path):
     """Return an ordered list of (label, datetime) candidates, best first."""
     sources = []
-    try:
-        tags = exif.read_tags(path)
-    except exif.ExifError:
-        tags = {}
+    tags = _read_tags(path)
     for tag in _EXIF_PRIORITY:
         if tag in tags:
             parsed = _parse_exif_datetime(tags[tag])
             if parsed is not None:
                 sources.append((_EXIF_SOURCE_LABELS[tag], parsed))
+    if png.TAG_CREATION_TIME in tags:
+        parsed = _parse_creation_time(tags[png.TAG_CREATION_TIME])
+        if parsed is not None:
+            sources.append(("png:CreationTime", parsed))
     filename_dt = _from_filename(os.path.basename(path))
     if filename_dt is not None:
         sources.append(("filename", filename_dt))

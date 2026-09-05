@@ -77,17 +77,13 @@ def _read_ifd(tiff, byte_order, offset):
     return entries, next_ifd
 
 
-def read_tags(path):
-    """Return a dict of {tag: str_value} for the tags we know about.
+def parse_tiff(tiff):
+    """Parse a raw TIFF byte string (byte-order marker onward) into tags.
 
-    Returns an empty dict if the file has no EXIF data. Raises ExifError
-    if the file isn't a JPEG or its EXIF block looks corrupt.
+    This is the part of EXIF parsing that's format-agnostic: a JPEG APP1
+    segment and a PNG eXIf chunk both wrap this same TIFF structure, just
+    with different container framing around it.
     """
-    with open(path, "rb") as f:
-        data = f.read(_READ_LIMIT)
-    tiff = _find_app1_segment(data)
-    if tiff is None:
-        return {}
     if tiff[:2] == b"II":
         byte_order = "<"
     elif tiff[:2] == b"MM":
@@ -107,3 +103,17 @@ def read_tags(path):
             if tag in exif_ifd:
                 tags[tag] = exif_ifd[tag]
     return tags
+
+
+def read_tags(path):
+    """Return a dict of {tag: str_value} for the tags we know about.
+
+    Returns an empty dict if the file has no EXIF data. Raises ExifError
+    if the file isn't a JPEG or its EXIF block looks corrupt.
+    """
+    with open(path, "rb") as f:
+        data = f.read(_READ_LIMIT)
+    tiff = _find_app1_segment(data)
+    if tiff is None:
+        return {}
+    return parse_tiff(tiff)
