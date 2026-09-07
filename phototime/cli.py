@@ -7,7 +7,7 @@ import sys
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 
-from . import exif, png
+from . import exif, heic, png
 
 _EXIF_DATETIME_RE = re.compile(r"^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$")
 
@@ -62,6 +62,11 @@ def _read_tags(path):
         try:
             return png.read_tags(path)
         except png.PngError:
+            return {}
+    if header[4:8] == b"ftyp":
+        try:
+            return heic.read_tags(path)
+        except heic.HeicError:
             return {}
     try:
         return exif.read_tags(path)

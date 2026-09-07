@@ -76,15 +76,23 @@ DateTimeOriginal/DateTimeDigitized/DateTime tags as JPEGs when the file has
 an `eXIf` chunk (common for PNGs exported from RAW converters or phones
 that happen to save PNG).
 
+HEIC/HEIF files (the default photo format on recent iPhones) are detected by
+their `ftyp` box and a recognized brand (`heic`, `mif1`, `avif`, and similar).
+The same DateTimeOriginal/DateTimeDigitized/DateTime tags are read from the
+`Exif` item inside the file's `meta` box.
+
 ## Current limitations
 
-- JPEG and PNG only. HEIC is not supported yet.
+- JPEG, PNG, and HEIC/HEIF only.
 - EXIF parsing covers the DateTime tags only - no GPS, no camera model, no
   orientation.
-- Assumes EXIF lives in the first 2MB of a JPEG (4MB of a PNG), which is
-  true for every camera and phone encoder, but not guaranteed by the spec.
+- Assumes EXIF lives in the first 2MB of a JPEG (4MB of a PNG, 8MB of a
+  HEIC), which is true for every camera and phone encoder, but not
+  guaranteed by the spec.
 - PNG `iTXt` chunks (the international-text variant) aren't read, only
   `tEXt` and `zTXt`.
+- HEIC Exif items stored with a construction method other than a plain file
+  offset (rare in practice) aren't read.
 
 ## License
 
