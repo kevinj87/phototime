@@ -41,6 +41,30 @@ That's the case phototime exists for: the file's mtime says January 2024
 because that's when it was copied off an old phone, but the photo itself was
 taken in 2019.
 
+`--json` prints a JSON array instead, one object per file, always with every
+source and mismatch (there's no separate verbose mode for JSON - a consumer
+can just ignore fields it doesn't need):
+
+```
+$ phototime --json vacation_photo.jpg
+[
+  {
+    "path": "vacation_photo.jpg",
+    "taken": {"datetime": "2019-08-02T09:14:03", "source": "exif:DateTimeOriginal"},
+    "sources": [
+      {"datetime": "2019-08-02T09:14:03", "source": "exif:DateTimeOriginal"},
+      {"datetime": "2024-01-11T16:40:55", "source": "mtime"}
+    ],
+    "mismatches": [
+      {"a": "exif:DateTimeOriginal", "b": "mtime", "days": 1621.31}
+    ]
+  }
+]
+```
+
+A file that can't be read shows up as `{"path": ..., "error": ...}` instead
+of a `taken` field, and the process still exits non-zero.
+
 ## Install
 
 No third-party dependencies, standard library only.

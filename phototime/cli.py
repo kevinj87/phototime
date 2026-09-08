@@ -1,6 +1,7 @@
 """Reconcile EXIF, filename, and mtime dates into one best guess."""
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -151,6 +152,29 @@ def report(path, verbose):
         print(f"  note:   {label_a} and {label_b} disagree by {diff}")
 
 
+def build_result(path):
+    """Return a JSON-serializable dict describing every date source found.
+
+    Unlike the text report, this always includes every source and every
+    mismatch - there's no "-v" equivalent for JSON, since a consumer of
+    the JSON can just ignore fields it doesn't care about.
+    """
+    sources = gather_sources(path)
+    label, dt = sources[0]
+    return {
+        "path": path,
+        "taken": {"datetime": dt.isoformat(), "source": label},
+        "sources": [
+            {"datetime": source_dt.isoformat(), "source": source_label}
+            for source_label, source_dt in sources
+        ],
+        "mismatches": [
+            {"a": label_a, "b": label_b, "days": diff.total_seconds() / 86400}
+            for label_a, label_b, diff in find_mismatches(sources)
+        ],
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="phototime",
@@ -162,19 +186,36 @@ def main(argv=None):
         action="store_true",
         help="show every date source found, not just the best guess",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON array of results instead of text (implies -v)",
+    )
     args = parser.parse_args(argv)
 
     exit_code = 0
+    results = []
     for path in args.paths:
         if not os.path.isfile(path):
-            print(f"{path}: no such file", file=sys.stderr)
+            if args.json:
+                results.append({"path": path, "error": "no such file"})
+            else:
+                print(f"{path}: no such file", file=sys.stderr)
             exit_code = 1
             continue
         try:
-            report(path, args.verbose)
+            if args.json:
+                results.append(build_result(path))
+            else:
+                report(path, args.verbose)
         except OSError as e:
-            print(f"{path}: {e}", file=sys.stderr)
+            if args.json:
+                results.append({"path": path, "error": str(e)})
+            else:
+                print(f"{path}: {e}", file=sys.stderr)
             exit_code = 1
+    if args.json:
+        print(json.dumps(results, indent=2))
     return exit_code
 
 
