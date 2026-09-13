@@ -118,6 +118,15 @@ The same DateTimeOriginal/DateTimeDigitized/DateTime tags are read from the
 - HEIC Exif items stored with a construction method other than a plain file
   offset (rare in practice) aren't read.
 
+## Tests
+
+No binary fixture files are checked in - JPEG/PNG/HEIC bytes are assembled
+in memory at test time (`tests/fixtures.py`). Run everything with:
+
+```
+python -m unittest discover
+```
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
