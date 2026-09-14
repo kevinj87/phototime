@@ -65,6 +65,16 @@ $ phototime --json vacation_photo.jpg
 A file that can't be read shows up as `{"path": ..., "error": ...}` instead
 of a `taken` field, and the process still exits non-zero.
 
+Point it at a directory with `-r`/`--recursive` to scan every JPEG, PNG, and
+HEIC/HEIF file underneath it (matched by extension, not signature sniffing):
+
+```
+$ phototime -r ./backup
+```
+
+A directory given without `-r` is reported as an error rather than silently
+skipped.
+
 ## Install
 
 No third-party dependencies, standard library only.

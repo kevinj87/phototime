@@ -21,6 +21,8 @@ _FILENAME_DATE_RE = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)")
 
 MISMATCH_THRESHOLD = timedelta(days=1)
 
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
+
 _EXIF_SOURCE_LABELS = {
     exif.TAG_DATETIME_ORIGINAL: "exif:DateTimeOriginal",
     exif.TAG_DATETIME_DIGITIZED: "exif:DateTimeDigitized",
@@ -175,16 +177,31 @@ def build_result(path):
     }
 
 
+def _walk_images(root):
+    """Yield image file paths under root, directories and files each sorted
+    for deterministic ordering across platforms and filesystems."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if os.path.splitext(name)[1].lower() in _IMAGE_EXTENSIONS:
+                yield os.path.join(dirpath, name)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="phototime",
         description="Find the most trustworthy capture date for a photo.",
     )
-    parser.add_argument("paths", nargs="+", help="image files to inspect")
+    parser.add_argument("paths", nargs="+", help="image files or directories to inspect")
     parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="show every date source found, not just the best guess",
+    )
+    parser.add_argument(
+        "-r", "--recursive",
+        action="store_true",
+        help="if a path is a directory, scan it recursively for image files",
     )
     parser.add_argument(
         "--json",
@@ -195,7 +212,22 @@ def main(argv=None):
 
     exit_code = 0
     results = []
+    targets = []
     for path in args.paths:
+        if os.path.isdir(path):
+            if args.recursive:
+                targets.extend(_walk_images(path))
+                continue
+            message = "is a directory (use -r to scan recursively)"
+            if args.json:
+                results.append({"path": path, "error": message})
+            else:
+                print(f"{path}: {message}", file=sys.stderr)
+            exit_code = 1
+            continue
+        targets.append(path)
+
+    for path in targets:
         if not os.path.isfile(path):
             if args.json:
                 results.append({"path": path, "error": "no such file"})

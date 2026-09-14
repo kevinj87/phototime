@@ -146,6 +146,39 @@ class MainCliTests(unittest.TestCase):
         payload = json.loads(buf.getvalue())
         self.assertEqual(payload, [{"path": "/no/such/file.jpg", "error": "no such file"}])
 
+    def test_directory_without_recursive_flag_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["--json", tmp])
+        self.assertEqual(code, 1)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["path"], tmp)
+        self.assertIn("directory", payload[0]["error"])
+
+    def test_recursive_scan_finds_nested_images_and_skips_others(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = os.path.join(tmp, "album")
+            os.makedirs(nested)
+            jpeg_path = os.path.join(nested, "photo.jpg")
+            with open(jpeg_path, "wb") as f:
+                f.write(
+                    fixtures.build_jpeg_with_exif(
+                        exif_tags={exif.TAG_DATETIME_ORIGINAL: "2019:08:02 09:14:03"}
+                    )
+                )
+            with open(os.path.join(nested, "notes.txt"), "w") as f:
+                f.write("not a photo")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["--json", "-r", tmp])
+        self.assertEqual(code, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["path"], jpeg_path)
+        self.assertEqual(payload[0]["taken"]["source"], "exif:DateTimeOriginal")
+
     def test_text_report_includes_source_and_mismatch_note(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "vacation_photo.jpg")
