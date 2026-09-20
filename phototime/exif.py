@@ -1,9 +1,10 @@
-"""Minimal EXIF reader for JPEG files.
+"""Minimal EXIF reader for JPEG files, and the shared TIFF parser PNG and
+HEIC readers build on for their own EXIF blocks.
 
-This only extracts the handful of tags phototime cares about (the
-DateTime family). It is not a general-purpose EXIF library: no writing,
-no thumbnails, no GPS, no maker notes. JPEG only for now - see README
-for the plan on other formats.
+This only extracts the handful of tags phototime cares about: the
+DateTime family and GPS latitude/longitude/altitude. Not a general-
+purpose EXIF library: no writing, no thumbnails, no camera model, no
+maker notes.
 """
 
 import struct
@@ -15,12 +16,30 @@ _EXIF_HEADER = b"Exif\x00\x00"
 
 TAG_DATETIME = 0x0132
 TAG_EXIF_IFD_POINTER = 0x8769
+TAG_GPS_IFD_POINTER = 0x8825
 TAG_DATETIME_ORIGINAL = 0x9003
 TAG_DATETIME_DIGITIZED = 0x9004
 
+# Key under which parse_tiff stores the decoded GPS dict, if present. A
+# string rather than a numeric tag, same trick png.py uses for
+# TAG_CREATION_TIME, so it can share the same tags dict without colliding
+# with any real EXIF tag number.
+TAG_GPS = "gps"
+
+# Tags within the GPS sub-IFD (pointed to by TAG_GPS_IFD_POINTER), not
+# top-level EXIF tags, so they're kept private.
+_GPS_TAG_LATITUDE_REF = 1
+_GPS_TAG_LATITUDE = 2
+_GPS_TAG_LONGITUDE_REF = 3
+_GPS_TAG_LONGITUDE = 4
+_GPS_TAG_ALTITUDE_REF = 5
+_GPS_TAG_ALTITUDE = 6
+
+_TYPE_BYTE = 1
 _TYPE_ASCII = 2
 _TYPE_SHORT = 3
 _TYPE_LONG = 4
+_TYPE_RATIONAL = 5
 
 # EXIF is almost always in the first segment or two of a JPEG, well
 # before any scan data, so we never need to read the whole file.
@@ -72,9 +91,49 @@ def _read_ifd(tiff, byte_order, offset):
             entries[tag] = struct.unpack_from(byte_order + "H", value_bytes)[0]
         elif typ == _TYPE_LONG:
             entries[tag] = struct.unpack_from(byte_order + "I", value_bytes)[0]
+        elif typ == _TYPE_BYTE:
+            entries[tag] = value_bytes[0]
+        elif typ == _TYPE_RATIONAL:
+            # Always stored out-of-line: even a single rational is 8 bytes,
+            # too big for the 4-byte inline value field.
+            value_offset = struct.unpack_from(byte_order + "I", value_bytes)[0]
+            rationals = [
+                struct.unpack_from(byte_order + "II", tiff, value_offset + i * 8)
+                for i in range(num)
+            ]
+            entries[tag] = rationals[0] if num == 1 else rationals
         entry_offset += 12
     next_ifd = struct.unpack_from(byte_order + "I", tiff, entry_offset)[0]
     return entries, next_ifd
+
+
+def _rational_to_float(rational):
+    numerator, denominator = rational
+    return numerator / denominator if denominator else 0.0
+
+
+def _dms_to_degrees(dms):
+    degrees, minutes, seconds = (_rational_to_float(v) for v in dms)
+    return degrees + minutes / 60 + seconds / 3600
+
+
+def _parse_gps_ifd(gps_ifd):
+    """Turn a raw GPS sub-IFD into {"latitude", "longitude", "altitude"}
+    (signed decimal degrees and meters), or None if it lacks a position."""
+    if _GPS_TAG_LATITUDE not in gps_ifd or _GPS_TAG_LONGITUDE not in gps_ifd:
+        return None
+    latitude = _dms_to_degrees(gps_ifd[_GPS_TAG_LATITUDE])
+    if gps_ifd.get(_GPS_TAG_LATITUDE_REF) == "S":
+        latitude = -latitude
+    longitude = _dms_to_degrees(gps_ifd[_GPS_TAG_LONGITUDE])
+    if gps_ifd.get(_GPS_TAG_LONGITUDE_REF) == "W":
+        longitude = -longitude
+    altitude = None
+    if _GPS_TAG_ALTITUDE in gps_ifd:
+        altitude = _rational_to_float(gps_ifd[_GPS_TAG_ALTITUDE])
+        if gps_ifd.get(_GPS_TAG_ALTITUDE_REF) == 1:  # 1 == below sea level
+            altitude = -altitude
+    return {"latitude": latitude, "longitude": longitude, "altitude": altitude}
 
 
 def parse_tiff(tiff):
@@ -102,6 +161,11 @@ def parse_tiff(tiff):
         for tag in (TAG_DATETIME_ORIGINAL, TAG_DATETIME_DIGITIZED):
             if tag in exif_ifd:
                 tags[tag] = exif_ifd[tag]
+    if TAG_GPS_IFD_POINTER in ifd0:
+        gps_ifd, _ = _read_ifd(tiff, byte_order, ifd0[TAG_GPS_IFD_POINTER])
+        gps = _parse_gps_ifd(gps_ifd)
+        if gps is not None:
+            tags[TAG_GPS] = gps
     return tags
 
 

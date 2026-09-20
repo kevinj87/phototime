@@ -75,6 +75,19 @@ $ phototime -r ./backup
 A directory given without `-r` is reported as an error rather than silently
 skipped.
 
+`--gps` switches to a second query mode: instead of reconciling capture
+dates, it reads the GPS latitude/longitude/altitude out of EXIF (JPEG, PNG,
+and HEIC all share the same GPS IFD parsing the date tags use):
+
+```
+$ phototime --gps IMG_1234.jpg
+IMG_1234.jpg
+  gps:    37.819900, -122.478300  (altitude: 30.5m)
+```
+
+A file with no GPS tags prints `not found` in text mode, or `"gps": null` in
+`--json` mode, rather than being treated as an error.
+
 ## Install
 
 No third-party dependencies, standard library only.
@@ -118,8 +131,8 @@ The same DateTimeOriginal/DateTimeDigitized/DateTime tags are read from the
 ## Current limitations
 
 - JPEG, PNG, and HEIC/HEIF only.
-- EXIF parsing covers the DateTime tags only - no GPS, no camera model, no
-  orientation.
+- EXIF parsing covers the DateTime tags and GPS position only - no camera
+  model, no orientation.
 - Assumes EXIF lives in the first 2MB of a JPEG (4MB of a PNG, 8MB of a
   HEIC), which is true for every camera and phone encoder, but not
   guaranteed by the spec.

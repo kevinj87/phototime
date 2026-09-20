@@ -41,34 +41,109 @@ def _pack_ascii_ifd(tags, offset, extra_entries):
     return body, values
 
 
-def build_tiff(ifd0_tags=None, exif_tags=None):
+def _pack_gps_ifd(entries, offset):
+    """Pack a TIFF IFD of GPS tags: entries is a list of (tag, typ, count,
+    value). ASCII values are a python str; RATIONAL values are a list of
+    (numerator, denominator) tuples; BYTE values are a single int. Mirrors
+    the read side in exif.py's _read_ifd/_parse_gps_ifd.
+    """
+    header_size = 2 + len(entries) * 12 + 4
+    value_pos = offset + header_size
+
+    body = struct.pack("<H", len(entries))
+    extra = b""
+    for tag, typ, count, value in entries:
+        if typ == exif._TYPE_ASCII:
+            raw = value.encode("ascii") + b"\x00"
+            body += struct.pack("<HHI", tag, typ, len(raw))
+            body += raw.ljust(4, b"\x00")  # always short enough to be inline
+        elif typ == exif._TYPE_RATIONAL:
+            body += struct.pack("<HHI", tag, typ, count)
+            body += struct.pack("<I", value_pos)
+            for numerator, denominator in value:
+                extra += struct.pack("<II", numerator, denominator)
+            value_pos += count * 8
+        else:  # BYTE, fits inline
+            body += struct.pack("<HHI", tag, typ, count)
+            body += struct.pack("<I", value)
+    body += struct.pack("<I", 0)  # next IFD offset: none
+    return body, extra
+
+
+def dms_rationals(decimal_degrees, precision=10000):
+    """Convert an unsigned decimal-degree value into the (degrees, minutes,
+    seconds) rationals GPSLatitude/GPSLongitude store."""
+    degrees = int(decimal_degrees)
+    minutes_float = (decimal_degrees - degrees) * 60
+    minutes = int(minutes_float)
+    seconds = (minutes_float - minutes) * 60
+    return ((degrees, 1), (minutes, 1), (round(seconds * precision), precision))
+
+
+def build_gps_entries(latitude, longitude, altitude=None):
+    """Build the entries list for build_tiff's gps_entries= param from signed
+    decimal-degree latitude/longitude and an optional altitude in meters."""
+    entries = [
+        (exif._GPS_TAG_LATITUDE_REF, exif._TYPE_ASCII, 2, "N" if latitude >= 0 else "S"),
+        (exif._GPS_TAG_LATITUDE, exif._TYPE_RATIONAL, 3, dms_rationals(abs(latitude))),
+        (exif._GPS_TAG_LONGITUDE_REF, exif._TYPE_ASCII, 2, "E" if longitude >= 0 else "W"),
+        (exif._GPS_TAG_LONGITUDE, exif._TYPE_RATIONAL, 3, dms_rationals(abs(longitude))),
+    ]
+    if altitude is not None:
+        entries.append(
+            (exif._GPS_TAG_ALTITUDE_REF, exif._TYPE_BYTE, 1, 0 if altitude >= 0 else 1)
+        )
+        entries.append(
+            (exif._GPS_TAG_ALTITUDE, exif._TYPE_RATIONAL, 1, [(round(abs(altitude) * 10), 10)])
+        )
+    return entries
+
+
+def build_tiff(ifd0_tags=None, exif_tags=None, gps_entries=None):
     """Build a raw little-endian TIFF blob (the part shared by JPEG APP1,
     PNG eXIf, and HEIC Exif items).
 
     ifd0_tags go straight into IFD0. exif_tags, if given, go into an Exif
     sub-IFD linked from IFD0 via the ExifIFDPointer tag, the way a real
     camera splits DateTime (IFD0) from DateTimeOriginal/Digitized (Exif IFD).
+    gps_entries, if given (see the module-level build_gps_entries() helper),
+    go into a GPS sub-IFD linked the same way via the GPSInfoIFDPointer tag.
     """
     ifd0_tags = dict(ifd0_tags or {})
     ifd0_offset = 8
-    extra = [[exif.TAG_EXIF_IFD_POINTER, exif._TYPE_LONG, 1, 0]] if exif_tags else []
+    exif_pointer = [exif.TAG_EXIF_IFD_POINTER, exif._TYPE_LONG, 1, 0] if exif_tags else None
+    gps_pointer = [exif.TAG_GPS_IFD_POINTER, exif._TYPE_LONG, 1, 0] if gps_entries else None
+    extra = [p for p in (exif_pointer, gps_pointer) if p is not None]
 
     ifd0_body, ifd0_values = _pack_ascii_ifd(ifd0_tags, ifd0_offset, extra)
-    exif_ifd_offset = ifd0_offset + len(ifd0_body) + len(ifd0_values)
+    offset = ifd0_offset + len(ifd0_body) + len(ifd0_values)
 
     exif_body = exif_values = b""
     if exif_tags:
-        extra[0][3] = exif_ifd_offset
+        exif_pointer[3] = offset
+        exif_body, exif_values = _pack_ascii_ifd(exif_tags, offset, [])
+        offset += len(exif_body) + len(exif_values)
+
+    gps_body = gps_values = b""
+    if gps_entries:
+        gps_pointer[3] = offset
+        gps_body, gps_values = _pack_gps_ifd(gps_entries, offset)
+
+    if extra:
         ifd0_body, ifd0_values = _pack_ascii_ifd(ifd0_tags, ifd0_offset, extra)
-        exif_body, exif_values = _pack_ascii_ifd(exif_tags, exif_ifd_offset, [])
 
     header = b"II" + struct.pack("<HI", 42, ifd0_offset)
-    return header + ifd0_body + ifd0_values + exif_body + exif_values
+    return (
+        header
+        + ifd0_body + ifd0_values
+        + exif_body + exif_values
+        + gps_body + gps_values
+    )
 
 
-def build_jpeg_with_exif(ifd0_tags=None, exif_tags=None):
+def build_jpeg_with_exif(ifd0_tags=None, exif_tags=None, gps_entries=None):
     """A minimal JPEG: SOI, one APP1/Exif segment, EOI."""
-    tiff = build_tiff(ifd0_tags, exif_tags)
+    tiff = build_tiff(ifd0_tags, exif_tags, gps_entries)
     segment = b"Exif\x00\x00" + tiff
     app1 = struct.pack(">HH", 0xFFE1, len(segment) + 2) + segment
     return b"\xff\xd8" + app1 + b"\xff\xd9"

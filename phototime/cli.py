@@ -154,6 +154,29 @@ def report(path, verbose):
         print(f"  note:   {label_a} and {label_b} disagree by {diff}")
 
 
+def gather_gps(path):
+    """Return the {"latitude", "longitude", "altitude"} dict for a path,
+    or None if the file has no GPS EXIF data."""
+    tags = _read_tags(path)
+    return tags.get(exif.TAG_GPS)
+
+
+def report_gps(path):
+    coords = gather_gps(path)
+    print(path)
+    if coords is None:
+        print("  gps:    not found")
+        return
+    line = f"  gps:    {coords['latitude']:.6f}, {coords['longitude']:.6f}"
+    if coords["altitude"] is not None:
+        line += f"  (altitude: {coords['altitude']:.1f}m)"
+    print(line)
+
+
+def build_gps_result(path):
+    return {"path": path, "gps": gather_gps(path)}
+
+
 def build_result(path):
     """Return a JSON-serializable dict describing every date source found.
 
@@ -208,6 +231,11 @@ def main(argv=None):
         action="store_true",
         help="print one JSON array of results instead of text (implies -v)",
     )
+    parser.add_argument(
+        "--gps",
+        action="store_true",
+        help="report GPS coordinates instead of the capture date",
+    )
     args = parser.parse_args(argv)
 
     exit_code = 0
@@ -236,7 +264,12 @@ def main(argv=None):
             exit_code = 1
             continue
         try:
-            if args.json:
+            if args.gps:
+                if args.json:
+                    results.append(build_gps_result(path))
+                else:
+                    report_gps(path)
+            elif args.json:
                 results.append(build_result(path))
             else:
                 report(path, args.verbose)

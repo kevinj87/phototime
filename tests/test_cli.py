@@ -106,6 +106,32 @@ class GatherSourcesTests(unittest.TestCase):
         self.assertEqual(cli.gather_sources(path), [("mtime", mtime)])
 
 
+class GatherGpsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _write(self, name, data):
+        path = os.path.join(self.tmpdir.name, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_returns_coordinates(self):
+        data = fixtures.build_jpeg_with_exif(
+            gps_entries=fixtures.build_gps_entries(37.8199, -122.4783, altitude=30.5)
+        )
+        path = self._write("photo.jpg", data)
+        gps = cli.gather_gps(path)
+        self.assertAlmostEqual(gps["latitude"], 37.8199, places=3)
+        self.assertAlmostEqual(gps["longitude"], -122.4783, places=3)
+        self.assertAlmostEqual(gps["altitude"], 30.5, places=1)
+
+    def test_none_when_no_gps_data(self):
+        path = self._write("plain.jpg", b"\xff\xd8\xff\xd9")
+        self.assertIsNone(cli.gather_gps(path))
+
+
 class FindMismatchesTests(unittest.TestCase):
     def test_flags_pairs_over_threshold_only(self):
         sources = [
@@ -197,6 +223,33 @@ class MainCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("taken:  2019-08-02 09:14:03  (source: exif:DateTimeOriginal)", output)
         self.assertIn("disagree by", output)
+
+    def test_gps_text_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "photo.jpg")
+            with open(path, "wb") as f:
+                f.write(
+                    fixtures.build_jpeg_with_exif(
+                        gps_entries=fixtures.build_gps_entries(37.8199, -122.4783)
+                    )
+                )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["--gps", path])
+        self.assertEqual(code, 0)
+        self.assertIn("gps:    37.819900, -122.478300", buf.getvalue())
+
+    def test_gps_json_reports_none_without_gps_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "plain.jpg")
+            with open(path, "wb") as f:
+                f.write(b"\xff\xd8\xff\xd9")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["--gps", "--json", path])
+        self.assertEqual(code, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload, [{"path": path, "gps": None}])
 
 
 if __name__ == "__main__":
