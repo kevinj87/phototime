@@ -2,9 +2,10 @@
 
 PNGs can carry the same EXIF DateTime tags as JPEGs, tucked into an
 "eXIf" chunk holding a raw TIFF blob (no APP1 wrapper, unlike JPEG).
-They can also carry a "Creation Time" tEXt/zTXt chunk, one of the
-handful of keywords the PNG spec actually standardizes. We read both
-and leave everything else (palettes, gamma, ICC profiles, ...) alone.
+They can also carry a "Creation Time" tEXt/zTXt/iTXt chunk, one of
+the handful of keywords the PNG spec actually standardizes. We read
+all of these and leave everything else (palettes, gamma, ICC
+profiles, ...) alone.
 """
 
 import struct
@@ -56,12 +57,33 @@ def _decode_ztxt_chunk(chunk_data):
     return keyword.decode("latin-1"), text
 
 
+def _decode_itxt_chunk(chunk_data):
+    """iTXt keywords are latin-1 like tEXt/zTXt, but the text itself is
+    UTF-8 (optionally zlib-compressed) rather than the ASCII text/zTXt
+    stick to, so this returns decoded str instead of bytes."""
+    keyword, _, rest = chunk_data.partition(b"\x00")
+    if len(rest) < 2:
+        return keyword.decode("latin-1"), ""
+    compression_flag, compression_method = rest[0], rest[1]
+    rest = rest[2:]
+    _language_tag, _, rest = rest.partition(b"\x00")
+    _translated_keyword, _, text = rest.partition(b"\x00")
+    if compression_flag:
+        if compression_method != 0:
+            return keyword.decode("latin-1"), ""  # unknown compression method
+        try:
+            text = zlib.decompress(text)
+        except zlib.error:
+            return keyword.decode("latin-1"), ""
+    return keyword.decode("latin-1"), text.decode("utf-8", errors="replace")
+
+
 def read_tags(path):
     """Return a dict combining EXIF-style tags and the PNG creation-time tag.
 
     EXIF tags (from an eXIf chunk) use the same numeric keys as exif.py's
     TAG_* constants, so callers can treat a PNG's eXIf data exactly like a
-    JPEG's. Creation Time (from a tEXt/zTXt chunk) uses the string key
+    JPEG's. Creation Time (from a tEXt/zTXt/iTXt chunk) uses the string key
     TAG_CREATION_TIME instead, since it isn't part of EXIF at all.
     """
     with open(path, "rb") as f:
@@ -83,4 +105,8 @@ def read_tags(path):
                 keyword, text = _decode_ztxt_chunk(chunk_data)
             if keyword == "Creation Time" and text:
                 tags[TAG_CREATION_TIME] = text.decode("ascii", errors="replace")
+        elif chunk_type == b"iTXt" and TAG_CREATION_TIME not in tags:
+            keyword, text = _decode_itxt_chunk(chunk_data)
+            if keyword == "Creation Time" and text:
+                tags[TAG_CREATION_TIME] = text
     return tags

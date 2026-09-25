@@ -111,9 +111,9 @@ In order of trust:
 2. `EXIF DateTimeDigitized` - falls back to this if `DateTimeOriginal` is
    missing (common on scanned or re-processed images).
 3. `EXIF DateTime` - the IFD0 "file changed" tag, least specific of the three.
-4. `png:CreationTime` - a PNG's `Creation Time` tEXt/zTXt chunk, when there's
-   no EXIF data to use instead (most PNGs are screenshots or re-encodes with
-   no camera EXIF at all).
+4. `png:CreationTime` - a PNG's `Creation Time` tEXt/zTXt/iTXt chunk, when
+   there's no EXIF data to use instead (most PNGs are screenshots or
+   re-encodes with no camera EXIF at all).
 5. A date pattern in the filename (`IMG_20230405_142212.jpg`,
    `Screenshot_20230405-142212.png`, `IMG-20230405-WA0007.jpg`, and similar).
 6. The filesystem's mtime, as a last resort.
@@ -136,8 +136,6 @@ The same DateTimeOriginal/DateTimeDigitized/DateTime tags are read from the
 - Assumes EXIF lives in the first 2MB of a JPEG (4MB of a PNG, 8MB of a
   HEIC), which is true for every camera and phone encoder, but not
   guaranteed by the spec.
-- PNG `iTXt` chunks (the international-text variant) aren't read, only
-  `tEXt` and `zTXt`.
 - HEIC Exif items stored with a construction method other than a plain file
   offset (rare in practice) aren't read.
 

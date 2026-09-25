@@ -36,6 +36,26 @@ class ReadTagsTests(unittest.TestCase):
         tags = png.read_tags(self._write(data))
         self.assertEqual(tags[png.TAG_CREATION_TIME], text.decode("ascii"))
 
+    def test_creation_time_itxt_chunk(self):
+        chunk_data = b"Creation Time\x00\x00\x00\x00\x00" + "Wed, 02 Aug 2019 09:14:03 GMT".encode("utf-8")
+        data = fixtures.build_png(chunks=[(b"iTXt", chunk_data)])
+        tags = png.read_tags(self._write(data))
+        self.assertEqual(tags[png.TAG_CREATION_TIME], "Wed, 02 Aug 2019 09:14:03 GMT")
+
+    def test_creation_time_itxt_chunk_compressed(self):
+        text = "Wed, 02 Aug 2019 09:14:03 GMT".encode("utf-8")
+        chunk_data = b"Creation Time\x00\x01\x00\x00\x00" + zlib.compress(text)
+        data = fixtures.build_png(chunks=[(b"iTXt", chunk_data)])
+        tags = png.read_tags(self._write(data))
+        self.assertEqual(tags[png.TAG_CREATION_TIME], "Wed, 02 Aug 2019 09:14:03 GMT")
+
+    def test_itxt_unicode_text(self):
+        text = "2019-08-02 café".encode("utf-8")
+        chunk_data = b"Creation Time\x00\x00\x00\x00\x00" + text
+        data = fixtures.build_png(chunks=[(b"iTXt", chunk_data)])
+        tags = png.read_tags(self._write(data))
+        self.assertEqual(tags[png.TAG_CREATION_TIME], "2019-08-02 café")
+
     def test_no_metadata_returns_empty(self):
         self.assertEqual(png.read_tags(self._write(fixtures.build_png())), {})
 
